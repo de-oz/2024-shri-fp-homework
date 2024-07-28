@@ -14,38 +14,91 @@
  * Иногда промисы от API будут приходить в состояние rejected, (прямо как и API в реальной жизни)
  * Ответ будет приходить в поле {result}
  */
- import Api from '../tools/api';
 
- const api = new Api();
+import Api from '../tools/api';
+import { __, allPass, compose, both, ifElse, length, test, lt, gt, modulo, tap, andThen, prop, otherwise, call, converge, always, evolve } from 'ramda';
 
- /**
-  * Я – пример, удали меня
-  */
- const wait = time => new Promise(resolve => {
-     setTimeout(resolve, time);
- })
+const api = new Api();
 
- const processSequence = ({value, writeLog, handleSuccess, handleError}) => {
-     /**
-      * Я – пример, удали меня
-      */
-     writeLog(value);
+const isPositiveNum = test(/^\d+\.?\d*$/);
+const isLengthFrom3to9 = compose(both(lt(__, 10), gt(__, 2)), length);
+const isValidNumber = compose(
+    allPass([isLengthFrom3to9, isPositiveNum]),
+    prop('value')
+);
 
-     api.get('https://api.tech/numbers/base', {from: 2, to: 10, number: '01011010101'}).then(({result}) => {
-         writeLog(result);
-     });
+const callFunctionWithArg = (fn, arg) => converge(call, [fn, arg]);
+const logValue = callFunctionWithArg(prop('writeLog'), prop('value'));
+const handleValidationError = callFunctionWithArg(prop('handleError'), always('Validation Error'));
+const handleNetworkError = callFunctionWithArg(prop('handleError'), prop('value'));
+const handleSuccess = callFunctionWithArg(prop('handleSuccess'), prop('value'));
 
-     wait(2500).then(() => {
-         writeLog('SecondLog')
+const roundNumber = compose(Math.round, Number);
+const logRoundedNumber = callFunctionWithArg(prop('writeLog'), compose(roundNumber, prop('value')));
+const processRoundedNumber = compose(
+    evolve({
+        value: roundNumber,
+    }),
+    tap(logRoundedNumber)
+);
 
-         return wait(1500);
-     }).then(() => {
-         writeLog('ThirdLog');
+const squareNum = compose((x) => x ** 2, prop('value'));
+const logSquaredNum = callFunctionWithArg(prop('writeLog'), squareNum);
 
-         return wait(400);
-     }).then(() => {
-         handleSuccess('Done');
-     });
- }
+const remainderOfDivisionBy3 = modulo(__, 3);
+const logRemainder = callFunctionWithArg(
+    prop('writeLog'),
+    compose(remainderOfDivisionBy3, prop('value'))
+);
+const processRemainder = compose(evolve({ value: remainderOfDivisionBy3 }), tap(logRemainder));
+
+const getBinaryNum = (options) =>
+    new Promise(async (resolve, reject) => {
+        const { writeLog, value, handleError } = options;
+
+        try {
+            const { result } = await api.get('https://api.tech/numbers/base', {
+                from: 10,
+                to: 2,
+                number: value,
+            });
+
+            writeLog(result);
+
+            writeLog(length(result));
+
+            resolve(options);
+        } catch (error) {
+            reject({ value: error, handleError });
+        }
+    });
+
+const getAnimal = (options) =>
+    new Promise(async (resolve, reject) => {
+        const { value, handleSuccess, handleError } = options;
+
+        try {
+            const { result } = await api.get(`https://animals.tech/${value}`, {});
+
+            resolve({ value: result, handleSuccess });
+        } catch (error) {
+            reject({ value: error, handleError });
+        }
+    });
+
+const processValidNumber = compose(
+    otherwise(handleNetworkError),
+    andThen(handleSuccess),
+    andThen(getAnimal),
+    andThen(processRemainder),
+    andThen(tap(logSquaredNum)),
+    getBinaryNum,
+    processRoundedNumber
+);
+
+const processSequence = compose(
+    ifElse(isValidNumber, processValidNumber, handleValidationError),
+    tap(logValue)
+);
 
 export default processSequence;
